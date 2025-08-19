@@ -36,7 +36,7 @@ jobs:
       
       - name: Login to Vault with GitHub OIDC
         run: |
-          vault write auth/jwt/login \
+          vault write -format=json auth/jwt/login \
             role="github-ecs-deployer" \
             jwt="${{ env.token }}" \
             > vault-response.json
