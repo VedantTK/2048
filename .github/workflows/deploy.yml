@@ -1,0 +1,50 @@
+name: Deploy 2048 to ECS
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # 👈 Needed for OIDC
+      contents: read
+
+    env:
+      VAULT_ADDR: http://34.42.214.187:8200   # or https://vault.example.com if TLS enabled
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get GitHub OIDC token
+        id: jwt
+        run: |
+          echo "token=$(curl -sSL \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://vault" \
+            | jq -r '.value')" >> $GITHUB_ENV
+      
+      - name: Login to Vault with GitHub OIDC
+        run: |
+          vault write auth/jwt/login \
+            role="github-ecs-deployer" \
+            jwt="${{ env.token }}" \
+            > vault-response.json
+
+          cat vault-response.json
+          echo "VAULT_TOKEN=$(jq -r .auth.client_token vault-response.json)" >> $GITHUB_ENV
+
+      - name: Get AWS creds from Vault
+        run: |
+          set -euo pipefail
+          export VAULT_TOKEN=${{ env.VAULT_TOKEN }}
+          CREDS=$(vault read -format=json aws/creds/ecs-deploy-role)
+          echo "AWS_ACCESS_KEY_ID=$(echo $CREDS | jq -r .data.access_key)" >> $GITHUB_ENV
+          echo "AWS_SECRET_ACCESS_KEY=$(echo $CREDS | jq -r .data.secret_key)" >> $GITHUB_ENV
+          echo "AWS_SESSION_TOKEN=$(echo $CREDS | jq -r .data.security_token)" >> $GITHUB_ENV
+
+      - name: Verify AWS Identity
+        run: aws sts get-caller-identity
