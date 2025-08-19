@@ -14,6 +14,10 @@ jobs:
 
     env:
       VAULT_ADDR: http://34.42.214.187:8200   # or https://vault.example.com if TLS enabled
+      AWS_REGION: us-west-2
+      ECR_REPO_URL: 293088445135.dkr.ecr.us-west-2.amazonaws.com/vault-cicd-2048
+      ECS_CLUSTER: vault-cicd-2048-dev-cluster
+      ECS_SERVICE: vault-cicd-2048-dev-svc
 
     steps:
       - name: Checkout code
@@ -55,3 +59,24 @@ jobs:
 
       - name: Verify AWS Identity
         run: aws sts get-caller-identity
+
+      - name: Configure AWS CLI Region
+        run: aws configure set region $AWS_REGION
+
+      - name: Login to Amazon ECR
+        run: |
+          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPO_URL
+
+      - name: Build, Tag, and Push Docker Image
+        run: |
+          IMAGE_TAG=latest
+          docker build -t $ECR_REPO_URL:$IMAGE_TAG .
+          docker push $ECR_REPO_URL:$IMAGE_TAG
+          echo "IMAGE=$ECR_REPO_URL:$IMAGE_TAG" >> $GITHUB_ENV
+
+      - name: Update ECS Service
+        run: |
+          aws ecs update-service \
+            --cluster $ECS_CLUSTER \
+            --service $ECS_SERVICE \
+            --force-new-deployment
